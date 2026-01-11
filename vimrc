@@ -83,10 +83,17 @@ autocmd StdinReadPre * let s:std_in=1
 autocmd VimEnter * if argc() == 1 && isdirectory(argv()[0]) && !exists('s:std_in') | execute 'NERDTree' argv()[0] | wincmd p | enew | execute 'cd '.argv()[0] | endif
 
 " FZF settings
-nnoremap <C-p> :Files<CR>
-nnoremap <C-g> :Rg<CR>
-nnoremap <C-b> :Buffers<CR>
 let g:fzf_layout = { 'down': '40%' }
+let g:fzf_action = {
+  \ 'ctrl-t': 'tab split',
+  \ 'ctrl-x': 'split',
+  \ 'ctrl-v': 'vsplit',
+  \ 'enter': 'edit' }
+
+" FZF commands - switch to editor pane first if in NERDTree
+nnoremap <expr> <C-p> &filetype ==# 'nerdtree' ? "\<C-w>l:Files\<CR>" : ":Files\<CR>"
+nnoremap <expr> <C-g> &filetype ==# 'nerdtree' ? "\<C-w>l:Rg\<CR>" : ":Rg\<CR>"
+nnoremap <expr> <C-b> &filetype ==# 'nerdtree' ? "\<C-w>l:Buffers\<CR>" : ":Buffers\<CR>"
 
 " ALE settings
 let g:ale_linters = {

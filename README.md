@@ -32,6 +32,36 @@ A practical vim setup for infrastructure management and software development.
 | `Ctrl-s` | Save file |
 | `Ctrl-q` | Close buffer |
 
+### Fuzzy Search (fzf)
+
+**Finding files with `Ctrl-p`:**
+- Start typing to filter files by name/path
+- Use `/` to match directory separators (e.g., `src/comp` finds `src/components/`)
+- Matches are fuzzy - `abc` matches `a_big_cat.txt`
+
+**Searching content with `Ctrl-g` (ripgrep):**
+- Type your search query and press Enter
+- Results show `file:line:column:match`
+- Continue typing to filter results
+
+**Inside fzf results:**
+
+| Key | Action |
+|-----|--------|
+| `Enter` | Open file |
+| `Ctrl-t` | Open in new tab |
+| `Ctrl-x` | Open in horizontal split |
+| `Ctrl-v` | Open in vertical split |
+| `Ctrl-j/k` | Move up/down in results |
+| `Esc` | Cancel |
+
+**Tips:**
+- Use `'` prefix for exact match: `'exact`
+- Use `^` for prefix match: `^start`
+- Use `$` for suffix match: `end$`
+- Use `!` to negate: `!node_modules`
+- Combine patterns with spaces: `src .js !test`
+
 ### Terminal (Floaterm)
 
 | Key | Action |
