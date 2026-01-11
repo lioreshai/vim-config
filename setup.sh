@@ -8,17 +8,32 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+# Detect OS
+if [[ "$OSTYPE" == "darwin"* ]]; then
+    IS_MAC=true
+else
+    IS_MAC=false
+fi
+
 echo "=== Vim Configuration Setup ==="
 echo
 
 # Check for vim
 if ! command -v vim &> /dev/null; then
     echo "Error: vim is not installed"
-    echo "Install with: sudo apt install vim"
+    if $IS_MAC; then
+        echo "Install with: brew install vim"
+    else
+        echo "Install with: sudo apt install vim"
+    fi
     exit 1
 fi
 
-VIM_VERSION=$(vim --version | head -1 | grep -oP '\d+\.\d+' | head -1)
+if $IS_MAC; then
+    VIM_VERSION=$(vim --version | head -1 | sed 's/.*Vi IMproved \([0-9]*\.[0-9]*\).*/\1/')
+else
+    VIM_VERSION=$(vim --version | head -1 | grep -oP '\d+\.\d+' | head -1)
+fi
 echo "Found vim version: $VIM_VERSION"
 
 # Install system dependencies
@@ -125,11 +140,16 @@ echo
 echo "=== Checking Go (optional) ==="
 
 if command -v go &> /dev/null; then
-    GO_VERSION=$(go version | grep -oP 'go\d+\.\d+' | head -1)
+    if $IS_MAC; then
+        GO_VERSION=$(go version | sed 's/.*\(go[0-9]*\.[0-9]*\).*/\1/')
+        GO_MINOR=$(echo "$GO_VERSION" | sed 's/go[0-9]*\.\([0-9]*\).*/\1/')
+    else
+        GO_VERSION=$(go version | grep -oP 'go\d+\.\d+' | head -1)
+        GO_MINOR=$(echo "$GO_VERSION" | grep -oP '\d+\.\d+' | cut -d. -f2)
+    fi
     echo "Found $GO_VERSION"
 
-    # Extract major.minor
-    GO_MINOR=$(echo "$GO_VERSION" | grep -oP '\d+\.\d+' | cut -d. -f2)
+    # Check if version is sufficient
     if [ "$GO_MINOR" -ge 24 ]; then
         echo "Go version sufficient for vim-go binaries"
         echo "Run :GoUpdateBinaries in vim to install gopls, goimports, etc."

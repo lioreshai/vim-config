@@ -155,12 +155,35 @@ nnoremap <Esc> :noh<CR><Esc>
 let g:floaterm_width = 0.9
 let g:floaterm_height = 0.9
 let g:floaterm_title = ''
-let g:floaterm_shell = 'tmux new-session -A -s vim'
-nnoremap <C-\> :FloatermToggle<CR>
+" Shell reads saved cwd before starting tmux
+let g:floaterm_shell = 'bash -c "cd \"$(cat ~/.vim_floaterm_cwd 2>/dev/null || echo .)\" && exec tmux new-session -A -s vim"'
+
+" Save cwd before opening floaterm and cd to it
+function! FloatermOpenInCwd()
+    let l:cwd = getcwd()
+    call writefile([l:cwd], expand('~/.vim_floaterm_cwd'))
+    FloatermToggle
+    " After toggle, send cd command if terminal opened
+    call timer_start(50, {-> s:FloatermCdIfOpen(l:cwd)})
+endfunction
+
+function! s:FloatermCdIfOpen(cwd)
+    if &buftype == 'terminal'
+        call system('tmux send-keys -t vim "cd ' . shellescape(a:cwd) . '" Enter')
+    endif
+endfunction
+
+nnoremap <C-\> :call FloatermOpenInCwd()<CR>
 tnoremap <C-\> <C-\><C-n>:FloatermToggle<CR>
 
 " Tmux controls (only active in terminal mode)
-tnoremap <C-t> <C-\><C-n>:call system('tmux new-window')<CR>:FloatermToggle<CR>:FloatermToggle<CR>
+" New window opens in vim's cwd
+function! FloatermNewWindow()
+    call system('tmux new-window -c ' . shellescape(getcwd()))
+    FloatermToggle
+    FloatermToggle
+endfunction
+tnoremap <C-t> <C-\><C-n>:call FloatermNewWindow()<CR>
 tnoremap <C-w> <C-\><C-n>:call system('tmux kill-pane')<CR>:FloatermToggle<CR>:FloatermToggle<CR>
 tnoremap <C-h> <C-\><C-n>:call system('tmux previous-window')<CR>:FloatermToggle<CR>:FloatermToggle<CR>
 tnoremap <C-l> <C-\><C-n>:call system('tmux next-window')<CR>:FloatermToggle<CR>:FloatermToggle<CR>

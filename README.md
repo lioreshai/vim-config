@@ -78,6 +78,8 @@ The terminal uses floaterm as a floating window with tmux inside for tab and pan
 | `Ctrl-k` | Previous pane | - |
 
 **Features:**
+- Terminal opens in vim's current working directory
+- New tabs also open in vim's cwd
 - Terminal session persists when hidden
 - Tabs show in tmux status bar at top
 - Split panes for side-by-side terminals
@@ -147,10 +149,22 @@ GitGutter shows `+`, `-`, `~` in the gutter for changes.
 
 ## Dependencies
 
-- `fzf` - Fuzzy finder (install via package manager)
-- `ripgrep` - Fast search (install via package manager)
-- `tmux` - Terminal multiplexer for tabbed terminals
-- `go` 1.24+ - For vim-go binaries (optional)
+| Dependency | Linux (apt) | macOS (brew) |
+|------------|-------------|--------------|
+| `fzf` | `sudo apt install fzf` | `brew install fzf` |
+| `ripgrep` | `sudo apt install ripgrep` | `brew install ripgrep` |
+| `tmux` | `sudo apt install tmux` | `brew install tmux` |
+| `shellcheck` | `sudo apt install shellcheck` | `brew install shellcheck` |
+| `yamllint` | `pip install yamllint` | `pip install yamllint` |
+| `go` 1.24+ | [golang.org](https://golang.org/dl/) | `brew install go` |
+
+The setup script will attempt to install missing dependencies automatically.
+
+### macOS Notes
+
+- **Homebrew required**: Install from [brew.sh](https://brew.sh) if not already installed
+- **Vim**: macOS ships with an older vim; `brew install vim` recommended for full feature support
+- The setup script detects macOS and uses appropriate commands
 
 ## Plugin Management
 
