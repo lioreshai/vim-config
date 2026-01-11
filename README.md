@@ -64,19 +64,23 @@ A practical vim setup for infrastructure management and software development.
 
 ### Terminal (Floaterm + tmux)
 
-The terminal uses floaterm as a floating window with tmux inside for tab management.
+The terminal uses floaterm as a floating window with tmux inside for tab and pane management.
 
 | Key | In Terminal | In Editor |
 |-----|-------------|-----------|
 | `Ctrl-\` | Hide terminal | Show terminal |
 | `Ctrl-t` | New tab | Focus NERDTree |
-| `Ctrl-w` | Close tab | (vim default) |
+| `Ctrl-w` | Close pane/tab | (vim default) |
 | `Ctrl-h` | Previous tab | Left pane |
 | `Ctrl-l` | Next tab | Right pane |
+| `Ctrl-s` | Split side-by-side | Save file |
+| `Ctrl-j` | Next pane | - |
+| `Ctrl-k` | Previous pane | - |
 
 **Features:**
 - Terminal session persists when hidden
-- Tabs show in tmux status bar at bottom
+- Tabs show in tmux status bar at top
+- Split panes for side-by-side terminals
 - Mouse click on tabs to switch
 - Window names auto-update based on running process
 

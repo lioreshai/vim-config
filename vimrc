@@ -161,9 +161,12 @@ tnoremap <C-\> <C-\><C-n>:FloatermToggle<CR>
 
 " Tmux controls (only active in terminal mode)
 tnoremap <C-t> <C-\><C-n>:call system('tmux new-window')<CR>:FloatermToggle<CR>:FloatermToggle<CR>
-tnoremap <C-w> <C-\><C-n>:call system('tmux kill-window')<CR>:FloatermToggle<CR>:FloatermToggle<CR>
+tnoremap <C-w> <C-\><C-n>:call system('tmux kill-pane')<CR>:FloatermToggle<CR>:FloatermToggle<CR>
 tnoremap <C-h> <C-\><C-n>:call system('tmux previous-window')<CR>:FloatermToggle<CR>:FloatermToggle<CR>
 tnoremap <C-l> <C-\><C-n>:call system('tmux next-window')<CR>:FloatermToggle<CR>:FloatermToggle<CR>
+tnoremap <C-j> <C-\><C-n>:call system('tmux select-pane -t :.+')<CR>:FloatermToggle<CR>:FloatermToggle<CR>
+tnoremap <C-k> <C-\><C-n>:call system('tmux select-pane -t :.-')<CR>:FloatermToggle<CR>:FloatermToggle<CR>
+tnoremap <C-s> <C-\><C-n>:call system('tmux split-window -h')<CR>:FloatermToggle<CR>:FloatermToggle<CR>
 
 " Window/pane navigation
 nnoremap <C-h> :wincmd h<CR>
