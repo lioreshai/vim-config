@@ -62,15 +62,23 @@ A practical vim setup for infrastructure management and software development.
 - Use `!` to negate: `!node_modules`
 - Combine patterns with spaces: `src .js !test`
 
-### Terminal (Floaterm)
+### Terminal (Floaterm + tmux)
 
-| Key | Action |
-|-----|--------|
-| `Ctrl-\` | Toggle terminal |
-| `Ctrl-n` | New terminal (when in terminal) |
-| `Ctrl-q` | Close terminal (when in terminal) |
-| `Ctrl-h` | Previous terminal (when in terminal) |
-| `Ctrl-l` | Next terminal (when in terminal) |
+The terminal uses floaterm as a floating window with tmux inside for tab management.
+
+| Key | In Terminal | In Editor |
+|-----|-------------|-----------|
+| `Ctrl-\` | Hide terminal | Show terminal |
+| `Ctrl-t` | New tab | Focus NERDTree |
+| `Ctrl-w` | Close tab | (vim default) |
+| `Ctrl-h` | Previous tab | Left pane |
+| `Ctrl-l` | Next tab | Right pane |
+
+**Features:**
+- Terminal session persists when hidden
+- Tabs show in tmux status bar at bottom
+- Mouse click on tabs to switch
+- Window names auto-update based on running process
 
 ### Git (Fugitive)
 
@@ -137,6 +145,7 @@ GitGutter shows `+`, `-`, `~` in the gutter for changes.
 
 - `fzf` - Fuzzy finder (install via package manager)
 - `ripgrep` - Fast search (install via package manager)
+- `tmux` - Terminal multiplexer for tabbed terminals
 - `go` 1.24+ - For vim-go binaries (optional)
 
 ## Plugin Management

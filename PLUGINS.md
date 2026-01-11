@@ -41,7 +41,9 @@
 
 | Plugin | Repository | Description |
 |--------|------------|-------------|
-| vim-floaterm | [voldikss/vim-floaterm](https://github.com/voldikss/vim-floaterm) | Floating terminal with tabs |
+| vim-floaterm | [voldikss/vim-floaterm](https://github.com/voldikss/vim-floaterm) | Floating terminal window |
+
+**Note:** Floaterm is configured to launch tmux for tab management. See `tmux.conf` for tmux configuration.
 
 ### Linting
 

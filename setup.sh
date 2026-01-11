@@ -36,6 +36,10 @@ install_deps() {
         missing+=("ripgrep")
     fi
 
+    if ! command -v tmux &> /dev/null; then
+        missing+=("tmux")
+    fi
+
     # Optional linters
     if ! command -v shellcheck &> /dev/null; then
         missing+=("shellcheck")
@@ -93,6 +97,19 @@ echo "=== Installing vimrc ==="
 
 cp "$SCRIPT_DIR/vimrc" ~/.vimrc
 echo "vimrc installed"
+
+# Copy tmux.conf
+echo
+echo "=== Installing tmux.conf ==="
+
+if [ -f ~/.tmux.conf ]; then
+    BACKUP=~/.tmux.conf.backup.$(date +%Y%m%d%H%M%S)
+    echo "Backing up ~/.tmux.conf to $BACKUP"
+    cp ~/.tmux.conf "$BACKUP"
+fi
+
+cp "$SCRIPT_DIR/tmux.conf" ~/.tmux.conf
+echo "tmux.conf installed"
 
 # Install plugins
 echo

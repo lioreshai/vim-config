@@ -151,15 +151,19 @@ nnoremap <expr> <C-q> &filetype ==# 'nerdtree' ? "" : ":bd\<CR>"
 " Clear search highlight
 nnoremap <Esc> :noh<CR><Esc>
 
-" Terminal (floaterm)
+" Terminal (floaterm + tmux)
 let g:floaterm_width = 0.9
 let g:floaterm_height = 0.9
+let g:floaterm_title = ''
+let g:floaterm_shell = 'tmux new-session -A -s vim'
 nnoremap <C-\> :FloatermToggle<CR>
 tnoremap <C-\> <C-\><C-n>:FloatermToggle<CR>
-tnoremap <C-h> <C-\><C-n>:FloatermPrev<CR>
-tnoremap <C-l> <C-\><C-n>:FloatermNext<CR>
-tnoremap <C-n> <C-\><C-n>:FloatermNew<CR>
-tnoremap <C-q> <C-\><C-n>:FloatermKill<CR>
+
+" Tmux controls (only active in terminal mode)
+tnoremap <C-t> <C-\><C-n>:call system('tmux new-window')<CR>:FloatermToggle<CR>:FloatermToggle<CR>
+tnoremap <C-w> <C-\><C-n>:call system('tmux kill-window')<CR>:FloatermToggle<CR>:FloatermToggle<CR>
+tnoremap <C-h> <C-\><C-n>:call system('tmux previous-window')<CR>:FloatermToggle<CR>:FloatermToggle<CR>
+tnoremap <C-l> <C-\><C-n>:call system('tmux next-window')<CR>:FloatermToggle<CR>:FloatermToggle<CR>
 
 " Window/pane navigation
 nnoremap <C-h> :wincmd h<CR>
