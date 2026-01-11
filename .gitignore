@@ -1,0 +1,12 @@
+# Vim swap/backup files
+*.swp
+*.swo
+*~
+.netrwhist
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Local overrides (if user wants personal customizations)
+vimrc.local
