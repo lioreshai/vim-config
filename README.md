@@ -84,7 +84,35 @@ The terminal uses floaterm as a floating window with tmux inside for tab and pan
 - Tabs show in tmux status bar at top
 - Split panes for side-by-side terminals
 - Mouse click on tabs to switch
-- Window names auto-update based on running process
+- Window names auto-update based on the running process; tabs running an AI
+  agent get a one-word name instead (see **Agent Tab Names**)
+
+#### Agent Tab Names
+
+Tabs running an interactive CLI agent (`pi`, `claude`, `codex`, ...) are renamed to
+a single word, so a window bar full of agent sessions is navigable at a glance
+instead of reading `pi pi pi pi`.
+
+- The project directory name is used whenever it is unambiguous, which costs
+  nothing and never calls a model.
+- A local OpenAI-compatible model server is consulted only when the directory
+  says nothing (home dir, scratch, worktree) or when several tabs would collide on
+  the same project name. It is shown the sibling tab labels so it can pick
+  something that tells them apart.
+- Roughly the last 40 screen lines go along as context, with lines matching
+  `password|secret|token|api key|private key` dropped first.
+- If no model is reachable the tab falls back to the project name, and with no
+  project name either it is left exactly as tmux would name it.
+- `prefix N` relabels the current tab immediately. A name you set by hand with
+  `prefix ,` is respected and never overwritten.
+
+Point it at your own server from `~/.tmux.local`, which is sourced when present
+and never written by `setup.sh`:
+
+```tmux
+set -g @agent-tab-base-url 'http://127.0.0.1:8000'
+set -g @agent-tab-model 'your-model-name'
+```
 
 ### Git (Fugitive)
 
@@ -154,6 +182,7 @@ GitGutter shows `+`, `-`, `~` in the gutter for changes.
 | `fzf` | `sudo apt install fzf` | `brew install fzf` |
 | `ripgrep` | `sudo apt install ripgrep` | `brew install ripgrep` |
 | `tmux` | `sudo apt install tmux` | `brew install tmux` |
+| `jq` | `sudo apt install jq` | `brew install jq` |
 | `shellcheck` | `sudo apt install shellcheck` | `brew install shellcheck` |
 | `yamllint` | `pip install yamllint` | `pip install yamllint` |
 | `go` 1.24+ | [golang.org](https://golang.org/dl/) | `brew install go` |
@@ -165,6 +194,8 @@ The setup script will attempt to install missing dependencies automatically.
 - **Homebrew required**: Install from [brew.sh](https://brew.sh) if not already installed
 - **Vim**: macOS ships with an older vim; `brew install vim` recommended for full feature support
 - The setup script detects macOS and uses appropriate commands
+- **Tab naming**: `flock` is not available on macOS, so the namer deduplicates
+  with a pidfile instead; `sha1sum` falls back to `shasum`
 
 ## Plugin Management
 

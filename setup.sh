@@ -55,6 +55,10 @@ install_deps() {
         missing+=("tmux")
     fi
 
+    if ! command -v jq &> /dev/null; then
+        missing+=("jq")
+    fi
+
     # Optional linters
     if ! command -v shellcheck &> /dev/null; then
         missing+=("shellcheck")
@@ -125,6 +129,24 @@ fi
 
 cp "$SCRIPT_DIR/tmux.conf" ~/.tmux.conf
 echo "tmux.conf installed"
+
+# Install agent tab namer: labels tabs running an AI agent with one word
+echo
+echo "=== Installing agent tab names ==="
+
+mkdir -p ~/.tmux
+cp "$SCRIPT_DIR/agent-tab-name.sh" ~/.tmux/agent-tab-name.sh
+chmod +x ~/.tmux/agent-tab-name.sh
+
+# Reload a running server so the new hooks take effect
+if command -v tmux &> /dev/null && tmux list-sessions &> /dev/null; then
+    tmux source-file ~/.tmux.conf 2>/dev/null
+    tmux run-shell -b "$HOME/.tmux/agent-tab-name.sh --watch" 2>/dev/null
+fi
+echo "agent tab names installed"
+echo "Optional: point the namer at your own model server in ~/.tmux.local"
+echo "  set -g @agent-tab-base-url 'http://127.0.0.1:8000'"
+echo "  set -g @agent-tab-model 'your-model-name'"
 
 # Install plugins
 echo
