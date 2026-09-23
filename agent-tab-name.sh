@@ -251,7 +251,7 @@ tick() {
   live=" $(tmux list-panes -a -F '#{pane_id}' 2>/dev/null | tr '\n' ' ') "
   shopt -s nullglob
   for f in "$STATE_DIR"/*; do
-    case "$f" in */.*) continue ;; esac
+    case "${f##*/}" in .*) continue ;; esac
     case "$live" in *" ${f##*/} "*) ;; *) rm -f "$f" ;; esac
   done
   shopt -u nullglob
