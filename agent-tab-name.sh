@@ -205,13 +205,15 @@ tick() {
       | tail -n 40)"
     hash=$(printf '%s' "$screen" | hash_text)
 
-    # relabel only when the screen changed and the previous attempt is old enough
+    # relabel when the last model attempt went stale and the screen moved on
+    # since that attempt, or the attempt produced nothing. last_ts is the time
+    # of the last attempt, so a tick that only re-applies a label must not
+    # rewrite it - doing so kept the age below TTL forever and froze the label.
     local refresh=0
     case "$MODE" in force|force-current) refresh=1 ;; esac
-    [ "$refresh" = 0 ] && [ -n "$last_hash" ] && [ "$hash" != "$last_hash" ] \
-      && [ $((now - last_ts)) -ge "$TTL" ] && refresh=1
-    # first ever look at this pane
-    [ "$refresh" = 0 ] && [ "${last_ts:-0}" -eq 0 ] && refresh=1
+    if [ "$refresh" = 0 ] && [ $((now - last_ts)) -ge "$TTL" ]; then
+      if [ "$hash" != "$last_hash" ] || [ -z "$last_label" ]; then refresh=1; fi
+    fi
 
     if [ "$refresh" = 0 ]; then
       if [ -n "$last_label" ] && [ "$wname" != "$last_label" ]; then
@@ -219,7 +221,6 @@ tick() {
       elif [ -z "$last_label" ] && [ -n "$base" ] && [ "$wname" != "$base" ]; then
         rename_win "$win" "$base"
       fi
-      printf '%s\t%s\t%s\n' "$now" "$last_hash" "$last_label" >"$file"
       continue
     fi
 
