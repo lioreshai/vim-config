@@ -122,8 +122,12 @@ C_DONE="$(opt @agent-status-done)"
 C_ERROR="$(opt @agent-status-error)"
 DIM_PCT="$(opt @agent-status-dim)"
 FRAME_MS="$(opt @agent-status-frame-ms)"
-BREATHE="$(opt @agent-status-breathe-frames)"
-PROBE_EVERY="$(opt @agent-status-probe-frames)"
+IDLE_MS="$(opt @agent-status-idle-ms)"
+SAMPLE_MS="$(opt @agent-status-sample-ms)"
+BREATHE_MS="$(opt @agent-status-breathe-ms)"
+BLINK_MS="$(opt @agent-status-blink-ms)"
+PROBE_MS="$(opt @agent-status-probe-ms)"
+ALERT_STYLE="$(opt @agent-status-alert-style)"
 CUE_RUNNING="$(opt @agent-status-cue-running)"
 CUE_WAITING="$(opt @agent-status-cue-waiting)"
 CUE_ERROR="$(opt @agent-status-cue-error)"
@@ -137,9 +141,16 @@ REDACT="${AGENT_TAB_REDACT:-$(opt @agent-tab-redact)}"
 [ -z "$C_DONE" ] && C_DONE='#98c379'
 [ -z "$C_ERROR" ] && C_ERROR='#e06c75'
 : "${DIM_PCT:=30}"
-: "${FRAME_MS:=500}"
-: "${BREATHE:=6}"
-: "${PROBE_EVERY:=6}"
+# Animation is wall-clock, not frame-counted: the phase comes from the time of
+# day, so a late frame skips ahead instead of stretching the cycle, and the
+# paint rate can change without changing the tempo.
+: "${FRAME_MS:=100}"        # paint interval while something is animating
+: "${IDLE_MS:=500}"         # paint interval when every colour is solid
+: "${SAMPLE_MS:=500}"       # how often state is re-derived, independent of paint
+: "${BREATHE_MS:=3600}"     # one full breath
+: "${BLINK_MS:=1000}"       # one on/off of an unwatched tab
+: "${PROBE_MS:=3000}"       # how often an unreporting pane's screen is read
+[ -z "$ALERT_STYLE" ] && ALERT_STYLE=blink
 # Only the bottom of the pane, because that is where a TUI keeps its spinner,
 # its input box and its footer. Reading the whole screen reads the conversation,
 # and a conversation about a crash is not a crash.
@@ -160,47 +171,90 @@ REDACT="${AGENT_TAB_REDACT:-$(opt @agent-tab-redact)}"
 [ "$ENABLED" = 0 ] && exit 0
 
 # ---------------------------------------------------------------- colour math
-scale_hex() { # #rrggbb pct -> #rrggbb scaled toward black
-  local h="${1#\#}" p="$2"
-  printf '#%02x%02x%02x' \
+HEX_OUT=""
+scale_hex() { # #rrggbb pct -> $HEX_OUT, scaled toward black. No $( ): this runs
+  local h="${1#\#}" p="$2"            # per window per frame and a fork per call
+  printf -v HEX_OUT '#%02x%02x%02x' \
     $(( 0x${h:0:2} * p / 100 )) $(( 0x${h:2:2} * p / 100 )) $(( 0x${h:4:2} * p / 100 ))
 }
 
-# Breathing is a ping-pong ramp of brightness, so "pulsating" is a real fade
-# rather than a two-frame blink. Precomputed: the loop must not do arithmetic
-# per window per frame.
-declare -a RAMP=()
+# A breath is a cosine, not a sawtooth: brightness lingers at the ends and moves
+# fastest through the middle, which is what reads as breathing rather than as a
+# level meter.
+#
+# The ramp has exactly one step per painted frame. Getting this wrong is what
+# made the first version look uneven: 24 steps over 2.4s is a step every 100ms,
+# painted every 120ms, so every fifth frame skipped a step and the jump was
+# double the others. Deriving it means frame-ms and breathe-ms can be set to
+# anything and the motion stays even.
+# ...with a quarter of a frame in hand, so a frame that arrives late repeats a
+# step instead of skipping one. Repeating is invisible; skipping is the stutter.
+STEPS=$(( BREATHE_MS * 4 / (FRAME_MS * 5) ))
+[ "$STEPS" -lt 8 ] && STEPS=8
+[ "$STEPS" -gt 64 ] && STEPS=64
+declare -a PCTS=() RAMP=()
 build_ramp() {
-  local n="$BREATHE" half i pct
-  [ "$n" -lt 2 ] && n=2
-  half=$(( (n + 1) / 2 ))
-  for (( i = 0; i < half; i++ )); do
-    pct=$(( DIM_PCT + (100 - DIM_PCT) * i / (half - 1 > 0 ? half - 1 : 1) ))
-    RAMP+=("$(scale_hex "$C_RUNNING" "$pct")")
-  done
-  for (( i = half - 2; i > 0; i-- )); do RAMP+=("${RAMP[$i]}"); done
+  local pct
+  while read -r pct; do
+    PCTS+=("$pct")
+    scale_hex "$C_RUNNING" "$pct"
+    RAMP+=("$HEX_OUT")
+  done < <(awk -v n="$STEPS" -v dim="$DIM_PCT" 'BEGIN {
+    for (i = 0; i < n; i++) printf "%d\n", dim + (100 - dim) * (1 - cos(2 * 3.14159265 * i / n)) / 2
+  }')
 }
 build_ramp
-printf -v FRAME_SLEEP '%d.%03d' "$(( FRAME_MS / 1000 ))" "$(( FRAME_MS % 1000 ))"
-DIM_WAITING="$(scale_hex "$C_WAITING" "$DIM_PCT")"
-DIM_DONE="$(scale_hex "$C_DONE" "$DIM_PCT")"
-DIM_ERROR="$(scale_hex "$C_ERROR" "$DIM_PCT")"
+nap_for() { # target_ms started_ms -> sleeps whatever is left of the frame
+  local rest=$(( $1 - (NOW_MS - $2) ))
+  [ "$rest" -lt 5 ] && rest=5
+  local nap
+  printf -v nap '%d.%03d' "$(( rest / 1000 ))" "$(( rest % 1000 ))"
+  sleep "$nap"
+}
+scale_hex "$C_WAITING" "$DIM_PCT"; DIM_WAITING="$HEX_OUT"
+scale_hex "$C_DONE" "$DIM_PCT";    DIM_DONE="$HEX_OUT"
+scale_hex "$C_ERROR" "$DIM_PCT";   DIM_ERROR="$HEX_OUT"
+
+NOW_MS=0
+if [ -n "${EPOCHREALTIME:-}" ]; then
+  now_ms() { # bash 5: no fork at all, which is the whole point at 8 frames a second
+    local t="${EPOCHREALTIME/,/.}"
+    NOW_MS=$(( ${t%.*} * 1000 + 10#${t#*.} / 1000 ))
+  }
+else
+  now_ms() { NOW_MS=$(( $(date +%s%3N) )); }
+fi
 
 # Urgency, for a window whose panes disagree. A table, not a function: this is
-# read twice per pane per frame and $( ) would fork for every read.
+# read twice per pane per sample and $( ) would fork for every read.
 declare -A RANK=([error]=4 [waiting]=3 [running]=2 [done]=1)
 
 COLOR=""
-frame_color() { # state frame unseen -> $COLOR ("" leaves the theme alone)
-  local dim=0
-  [ "$3" = 1 ] && [ $(( ($2 / 2) % 2 )) = 1 ] && dim=1   # flash at half frame rate
+phase_color() { # state unseen -> $COLOR ("" leaves the theme alone)
+  local base="" dim="" idx
   case "$1" in
-    running) COLOR="${RAMP[$(( $2 % ${#RAMP[@]} ))]}" ;;
-    waiting) [ "$dim" = 1 ] && COLOR="$DIM_WAITING" || COLOR="$C_WAITING" ;;
-    done)    [ "$dim" = 1 ] && COLOR="$DIM_DONE"    || COLOR="$C_DONE" ;;
-    error)   [ "$dim" = 1 ] && COLOR="$DIM_ERROR"   || COLOR="$C_ERROR" ;;
-    *) COLOR="" ;;
+    running)
+      COLOR="${RAMP[$(( (NOW_MS % BREATHE_MS) * STEPS / BREATHE_MS ))]}"
+      return ;;
+    waiting) base="$C_WAITING"; dim="$DIM_WAITING" ;;
+    done)    base="$C_DONE";    dim="$DIM_DONE" ;;
+    error)   base="$C_ERROR";   dim="$DIM_ERROR" ;;
+    *) COLOR=""; return ;;
   esac
+  if [ "$2" != 1 ]; then COLOR="$base"; return; fi
+  # An unwatched tab blinks rather than breathes, and that is deliberate: a
+  # breathing green "done" and a breathing green "running" are the same thing to
+  # a glance, while a hard on/off is unmistakably an alert. @agent-status-alert-
+  # style pulse trades that apart-ness for a smoother look.
+  if [ "$ALERT_STYLE" = pulse ]; then
+    idx=$(( (NOW_MS % BLINK_MS) * STEPS / BLINK_MS ))
+    scale_hex "$base" "${PCTS[$idx]}"
+    COLOR="$HEX_OUT"
+  elif [ $(( NOW_MS % BLINK_MS )) -lt $(( BLINK_MS / 2 )) ]; then
+    COLOR="$base"
+  else
+    COLOR="$dim"
+  fi
 }
 
 declare -A DERIVED=()   # pane -> state the screen cues last showed
@@ -222,10 +276,19 @@ probe_screen() { # pane -> state from screen cues
   fi
 }
 
-paint() { # frame -> one batched tmux call
-  local frame="$1"
-  local pane win cmd dead active attached wstate pstate
-  local -A win_state=() win_seen=()
+# State and appearance are separated because they change at different rates: a
+# breath needs a new colour eight times a second, while what the agent is doing
+# changes twice a second at most and costs a tmux round trip plus, for an
+# unreporting pane, a screen capture to find out.
+declare -A WIN_STATE=() WIN_SEEN=()
+ANIMATING=0
+LAST_PROBE=0
+LAST_PRUNE=0
+
+sample() { # -> WIN_STATE, WIN_SEEN, UNSEEN, ANIMATING
+  local pane win cmd dead active attached pstate wstate probe=0
+  WIN_STATE=(); WIN_SEEN=()
+  if [ $(( NOW_MS - LAST_PROBE )) -ge "$PROBE_MS" ]; then probe=1; LAST_PROBE=$NOW_MS; fi
 
   while IFS=$'\t' read -r pane win cmd dead active attached; do
     [ "$dead" = 1 ] && continue
@@ -243,13 +306,13 @@ paint() { # frame -> one batched tmux call
         # got to say how it ended: a crash or a kill. Only claimed for a pane
         # where an agent was positively identified, so an agent whose process
         # name is not in the pattern stays merely stale instead of going red.
-        # Recorded, so the next frame reads the verdict back instead of
+        # Recorded, so the next sample reads the verdict back instead of
         # re-deriving it.
         pstate=error
         printf '%s\t%s\n' error "$(now)" >"$file"
       fi
     elif [ "$present" = 1 ]; then
-      if [ $(( frame % PROBE_EVERY )) = 0 ]; then
+      if [ "$probe" = 1 ]; then
         pstate="$(probe_screen "$pane")"
         # a screen that stopped showing work has finished it
         [ -z "$pstate" ] && [ "${DERIVED[$pane]:-}" = running ] && pstate=done
@@ -260,21 +323,41 @@ paint() { # frame -> one batched tmux call
     fi
 
     [ -n "$pstate" ] || continue
-    if [ "${RANK[$pstate]:-0}" -gt "${RANK[${win_state[$win]:-}]:-0}" ]; then win_state[$win]="$pstate"; fi
-    [ "$active" = 1 ] && [ "${attached:-0}" != 0 ] && win_seen[$win]=1
+    if [ "${RANK[$pstate]:-0}" -gt "${RANK[${WIN_STATE[$win]:-}]:-0}" ]; then WIN_STATE[$win]="$pstate"; fi
+    [ "$active" = 1 ] && [ "${attached:-0}" != 0 ] && WIN_SEEN[$win]=1
   done < <(tmux list-panes -a -F \
     $'#{pane_id}\t#{window_id}\t#{pane_current_command}\t#{pane_dead}\t#{window_active}\t#{session_attached}')
 
-  local -a batch=() changes=()
-  for win in "${!win_state[@]}"; do
-    wstate="${win_state[$win]}"
-    if [ "${win_seen[$win]:-0}" = 1 ]; then
+  ANIMATING=0
+  for win in "${!WIN_STATE[@]}"; do
+    wstate="${WIN_STATE[$win]}"
+    if [ "${WIN_SEEN[$win]:-0}" = 1 ]; then
       UNSEEN[$win]=0                     # you are looking at it right now
     elif [ "$wstate" != running ] && [ "$wstate" != "${LAST[$win]:-}" ]; then
       UNSEEN[$win]=1                     # it just settled, and not in front of you
     fi
     LAST[$win]="$wstate"
-    frame_color "$wstate" "$frame" "${UNSEEN[$win]:-0}"
+    if [ "$wstate" = running ] || [ "${UNSEEN[$win]:-0}" = 1 ]; then ANIMATING=1; fi
+  done
+
+  if [ $(( NOW_MS - LAST_PRUNE )) -ge 60000 ]; then
+    LAST_PRUNE=$NOW_MS
+    local live f
+    live=" $(tmux list-panes -a -F '#{pane_id}' 2>/dev/null | tr '\n' ' ') "
+    shopt -s nullglob
+    for f in "$STATUS_DIR"/*; do
+      case "$live" in *" ${f##*/} "*) ;; *) rm -f "$f" ;; esac
+    done
+    shopt -u nullglob
+  fi
+}
+
+render() { # frame -> at most one batched tmux call
+  local frame="$1" win
+  local -a batch=() changes=()
+
+  for win in "${!WIN_STATE[@]}"; do
+    phase_color "${WIN_STATE[$win]}" "${UNSEEN[$win]:-0}"
     [ "$COLOR" = "${PAINTED[$win]:-}" ] && continue
     PAINTED[$win]="$COLOR"
     changes+=("$win $COLOR")
@@ -284,22 +367,12 @@ paint() { # frame -> one batched tmux call
 
   # a window that lost its agent goes back to the theme
   for win in "${!PAINTED[@]}"; do
-    [ -n "${win_state[$win]:-}" ] && continue
+    [ -n "${WIN_STATE[$win]:-}" ] && continue
     unset "PAINTED[$win]" "UNSEEN[$win]" "LAST[$win]"
     changes+=("$win -")
     batch+=(set -wu -t "$win" @agent-tab-color ';')
     batch+=(set -wu -t "$win" @agent-tab-color-cur ';')
   done
-
-  if [ $(( frame % 120 )) = 0 ]; then
-    local live f
-    live=" $(tmux list-panes -a -F '#{pane_id}' 2>/dev/null | tr '\n' ' ') "
-    shopt -s nullglob
-    for f in "$STATUS_DIR"/*; do
-      case "$live" in *" ${f##*/} "*) ;; *) rm -f "$f" ;; esac
-    done
-    shopt -u nullglob
-  fi
 
   [ ${#batch[@]} = 0 ] && return 0
   if [ "$DRY" = 1 ]; then
@@ -338,9 +411,12 @@ case "$MODE" in
   tick)
     frame=0
     while [ "$frame" -lt "$FRAMES" ]; do
-      paint "$frame"
+      now_ms
+      started=$NOW_MS
+      sample
+      render "$frame"
       frame=$(( frame + 1 ))
-      [ "$frame" -lt "$FRAMES" ] && sleep "$FRAME_SLEEP"
+      if [ "$frame" -lt "$FRAMES" ]; then now_ms; nap_for "$FRAME_MS" "$started"; fi
     done
     ;;
   watch)
@@ -350,11 +426,21 @@ case "$MODE" in
     printf '%s\n' "$$" >"$WATCH_PID"
     unpaint_all
     frame=0
+    last_sample=0
     while :; do
       tmux list-sessions >/dev/null 2>&1 || exit 0
-      paint "$frame"
+      now_ms
+      started=$NOW_MS
+      if [ $(( NOW_MS - last_sample )) -ge "$SAMPLE_MS" ]; then
+        sample
+        last_sample=$NOW_MS
+      fi
+      render "$frame"
       frame=$(( frame + 1 ))
-      sleep "$FRAME_SLEEP"
+      # Paint fast only while there is something to animate. A bar of solid
+      # colours costs one tmux call every half second, the same as before.
+      now_ms
+      if [ "$ANIMATING" = 1 ]; then nap_for "$FRAME_MS" "$started"; else nap_for "$IDLE_MS" "$started"; fi
     done
     ;;
 esac

@@ -199,17 +199,36 @@ set -g @agent-status-running '#98c379'   # also the breathing colour
 set -g @agent-status-waiting '#d79921'
 set -g @agent-status-done    '#98c379'
 set -g @agent-status-error   '#e06c75'
-set -g @agent-status-dim 30              # percent brightness at the dim end
-set -g @agent-status-frame-ms 500        # animation frame
-set -g @agent-status-breathe-frames 6    # ping-pong ramp length
-set -g @agent-status-probe-frames 6      # how often to read an unreporting pane
+set -g @agent-status-dim 30               # percent brightness at the dim end
+set -g @agent-status-frame-ms 100         # paint interval while something animates
+set -g @agent-status-idle-ms 500          # paint interval when every colour is solid
+set -g @agent-status-sample-ms 500        # how often state is re-derived
+set -g @agent-status-breathe-ms 3600      # one full breath
+set -g @agent-status-blink-ms 1000        # one on/off of an unwatched tab
+set -g @agent-status-alert-style blink    # or 'pulse' to fade instead of blink
+set -g @agent-status-probe-ms 3000        # how often to read an unreporting pane
 set -g @agent-status-cue-lines 8
 ```
 
+The breath is a cosine over a brightness ramp whose step count is derived from
+`frame-ms` and `breathe-ms`, so the two can be set to anything and the motion
+stays even — with a quarter-frame of margin, because a frame that arrives late
+should repeat a step rather than skip one. Skipping is what stuttering is. Each
+frame also sleeps only the time it has left, since painting takes real time and
+adding it to the sleep is the other way the phase drifts.
+
+An unwatched tab blinks rather than breathes on purpose: a breathing green
+"done" and a breathing green "running" look the same at a glance, while a hard
+on/off is unmistakably an alert. `@agent-status-alert-style pulse` trades that
+apart-ness for a smoother look.
+
 `prefix S` clears every tab back to the theme. One `tmux` call per frame, only
-for windows whose colour actually changed, which measures as no CPU time at all
-over a minute. `./agent-tab-status-test.sh` runs the checks against a throwaway
-session.
+for windows whose colour actually changed, and state sampling runs on its own
+slower clock so a smooth fade does not mean re-reading every pane ten times a
+second: 1.7% of one core while a tab is animating, and one call every half
+second when the bar is all solid. `./agent-tab-status-test.sh` runs 19 checks
+against a throwaway session, including that a breath moves through at least ten
+shades with no visible jump between frames.
 
 ### Git (Fugitive)
 

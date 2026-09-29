@@ -57,7 +57,7 @@ report "$P_RUN" running
 report "$P_WAIT" waiting
 report "$P_ERR" error
 
-OUT="$("$SCRIPT" --tick --frames 8 --dry-run 2>&1)"
+OUT="$("$SCRIPT" --tick --frames 24 --dry-run 2>&1)"   # ~2.9s: one full breath and blink
 
 # ------------------------------------------------------------------ reported state
 run_seq=$(colors_for "$W_RUN" "$OUT")
@@ -75,6 +75,23 @@ is "running shades are all green (g > r, g > b)" 1 "$(
     { [ "$g" -gt "$r" ] && [ "$g" -gt "$b" ]; } || bad=1
   done <<< "$run_seq"
   [ "$bad" = 0 ] && echo 1 || echo 0)"
+
+# Fluidity is measurable: many shades, and no visible jump between two frames.
+is "a breath moves through at least ten shades" 1 "$(
+   [ "$(printf '%s\n' "$run_seq" | sort -u | wc -l)" -ge 10 ] && echo 1 || echo 0)"
+is "no single step in the breath is a visible jump" 1 "$(
+  worst=0 prev=""
+  while read -r c; do
+    if [ -n "$prev" ]; then
+      a=${prev#\#}; b=${c#\#}
+      for o in 0 2 4; do
+        d=$(( 0x${a:$o:2} - 0x${b:$o:2} )); [ "$d" -lt 0 ] && d=$(( -d ))
+        [ "$d" -gt "$worst" ] && worst=$d
+      done
+    fi
+    prev=$c
+  done <<< "$run_seq"
+  [ "$worst" -le 18 ] && echo 1 || echo 0)"   # a skipped ramp step would double this
 
 is "unseen waiting flashes between two shades" \
    2 "$(printf '%s\n' "$wait_seq" | sort -u | wc -l | tr -d ' ')"
@@ -95,7 +112,7 @@ sleep 1.5
 tmux select-window -t "$SESSION:w-wait" 2>/dev/null
 is "the fixture session has a client" \
    1 "$(tmux list-windows -t "$SESSION" -F '#{session_attached}' | head -1)"
-OUT_SEEN="$("$SCRIPT" --tick --frames 6 --dry-run 2>&1)"
+OUT_SEEN="$("$SCRIPT" --tick --frames 16 --dry-run 2>&1)"
 kill "$ATTACH" 2>/dev/null
 seen_seq=$(colors_for "$W_WAIT" "$OUT_SEEN")
 is "the window in front of you is solid" \
@@ -105,13 +122,13 @@ is "the window in front of you is solid" \
 # A screen cue must never override what the agent said about itself.
 tmux send-keys -t "$SESSION:w-wait" '' 2>/dev/null
 report "$P_WAIT" done
-OUT2="$("$SCRIPT" --tick --frames 2 --dry-run 2>&1)"
+OUT2="$("$SCRIPT" --tick --frames 12 --dry-run 2>&1)"  # a full blink: this tab is unwatched
 has "reported state wins over screen cues" "#98c379" "$(colors_for "$W_WAIT" "$OUT2")"
 
 # ------------------------------------------------------------------ no agent
 # Handing a window back to the theme is a transition, so it only happens inside
 # a loop that saw the state and then saw it go.
-"$SCRIPT" --tick --frames 10 --dry-run >"$CACHE/out3" 2>&1 &
+"$SCRIPT" --tick --frames 24 --dry-run >"$CACHE/out3" 2>&1 &
 PAINTER=$!
 sleep 1
 rm -f "$STATUS/$P_RUN" "$STATUS/$P_WAIT" "$STATUS/$P_ERR"
@@ -125,17 +142,17 @@ has "a pane that lost its agent is handed back to the theme" "$W_RUN -" "$OUT3"
 # checks: no match ever, so no verdict.
 # `sh` first, `cat` after the exec: tmux reports the pane's own process, not its
 # children, which is also why a tool-running agent still reads as the agent.
-tmux new-window -t "$SESSION" -n w-crash 'sh -c "sleep 2; exec cat"'
+tmux new-window -t "$SESSION" -n w-crash 'sh -c "sleep 1; exec cat"'
 sleep 0.3
 W_CRASH=$(win w-crash); P_CRASH=$(pane w-crash)
 report "$P_CRASH" running
-OUT4="$(AGENT_STATUS_PATTERN='(^|/)(sh)( |$)' "$SCRIPT" --tick --frames 8 --dry-run 2>&1)"
+OUT4="$(AGENT_STATUS_PATTERN='(^|/)(sh)( |$)' "$SCRIPT" --tick --frames 24 --dry-run 2>&1)"
 crash_seq=$(colors_for "$W_CRASH" "$OUT4")
 has "an agent that vanished mid-run turns red" "#e06c75" "$crash_seq"
 is "the verdict is written down, not re-derived" error "$(cut -f1 "$STATUS/$P_CRASH")"
 
 report "$P_CRASH" running
-OUT5="$("$SCRIPT" --tick --frames 4 --dry-run 2>&1)"
+OUT5="$("$SCRIPT" --tick --frames 8 --dry-run 2>&1)"
 hasnt "a process the pattern never matched is not called a crash" "#e06c75" "$(colors_for "$W_CRASH" "$OUT5")"
 
 # ------------------------------------------------------------------ cues
@@ -146,7 +163,7 @@ tmux new-window -t "$SESSION" -n w-prose \
   'sh -c "i=0; while [ \$i -lt 60 ]; do echo; i=\$((i+1)); done; echo \"panic: boom\"; exec cat"'
 sleep 0.5
 W_PROSE=$(win w-prose)
-OUT6="$(AGENT_STATUS_PATTERN='(^|/)(cat)( |$)' "$SCRIPT" --tick --frames 2 --dry-run 2>&1)"
+OUT6="$(AGENT_STATUS_PATTERN='(^|/)(cat)( |$)' "$SCRIPT" --tick --frames 6 --dry-run 2>&1)"
 is "an error word on screen is not an error" "" "$(colors_for "$W_PROSE" "$OUT6")"
 
 # ------------------------------------------------------------------ stale paint
