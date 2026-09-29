@@ -170,7 +170,9 @@ approve something.
 
 **pi** reports from an extension (`extensions/tmux-status` in the pi harness
 repo) on `agent_start`, `ui_prompt_start`/`ui_prompt_end`, `agent_settled` and
-`session_shutdown` — the same four transitions.
+`session_shutdown` — the same transitions. It also reports at `session_start`,
+so `/reload` colours the tab straight away instead of leaving it grey until the
+session's next turn.
 
 An agent that reports nothing falls back to matching cue patterns against the
 **bottom eight lines** of the pane, where a TUI keeps its spinner, input box and
