@@ -172,7 +172,9 @@ approve something.
 repo) on `agent_start`, `ui_prompt_start`/`ui_prompt_end`, `agent_settled` and
 `session_shutdown` — the same transitions. It also reports at `session_start`,
 so `/reload` colours the tab straight away instead of leaving it grey until the
-session's next turn.
+session's next turn, and it stays green past the end of a turn while a detached
+command or a backgrounded subagent is still running — settling means pi will not
+continue on its own, not that nothing is happening.
 
 An agent that reports nothing falls back to matching cue patterns against the
 **bottom eight lines** of the pane, where a TUI keeps its spinner, input box and
