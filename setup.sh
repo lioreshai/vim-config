@@ -130,20 +130,24 @@ fi
 cp "$SCRIPT_DIR/tmux.conf" ~/.tmux.conf
 echo "tmux.conf installed"
 
-# Install agent tab namer: labels tabs running an AI agent with one word
+# Install the agent tab scripts: one labels tabs running an AI agent with a
+# single word, the other colours them by what that agent is doing
 echo
-echo "=== Installing agent tab names ==="
+echo "=== Installing agent tab names and status ==="
 
 mkdir -p ~/.tmux
-cp "$SCRIPT_DIR/agent-tab-name.sh" ~/.tmux/agent-tab-name.sh
-chmod +x ~/.tmux/agent-tab-name.sh
+for script in agent-tab-name.sh agent-tab-status.sh; do
+    cp "$SCRIPT_DIR/$script" ~/.tmux/"$script"
+    chmod +x ~/.tmux/"$script"
+done
 
 # Reload a running server so the new hooks take effect
 if command -v tmux &> /dev/null && tmux list-sessions &> /dev/null; then
     tmux source-file ~/.tmux.conf 2>/dev/null
     tmux run-shell -b "$HOME/.tmux/agent-tab-name.sh --watch" 2>/dev/null
+    tmux run-shell -b "$HOME/.tmux/agent-tab-status.sh --watch" 2>/dev/null
 fi
-echo "agent tab names installed"
+echo "agent tab names and status installed"
 echo "Optional: point the namer at your own model server in ~/.tmux.local"
 echo "  set -g @agent-tab-base-url 'http://127.0.0.1:8000'"
 echo "  set -g @agent-tab-model 'your-model-name'"

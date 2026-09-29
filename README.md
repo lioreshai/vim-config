@@ -85,7 +85,8 @@ The terminal uses floaterm as a floating window with tmux inside for tab and pan
 - Split panes for side-by-side terminals
 - Mouse click on tabs to switch
 - Window names auto-update based on the running process; tabs running an AI
-  agent get a one-word name instead (see **Agent Tab Names**)
+  agent get a one-word name instead (see **Agent Tab Names**) and a colour for
+  what that agent is doing (see **Agent Tab Status**)
 
 #### Agent Tab Names
 
@@ -113,6 +114,100 @@ and never written by `setup.sh`:
 set -g @agent-tab-base-url 'http://127.0.0.1:8000'
 set -g @agent-tab-model 'your-model-name'
 ```
+
+#### Agent Tab Status
+
+Tabs running an agent are coloured by what that agent is doing:
+
+| Colour | Meaning |
+|--------|---------|
+| green, breathing | working |
+| orange | blocked on you — a permission prompt is open |
+| green, solid | the turn finished |
+| red | it reported a failure, or died in the middle of a run |
+
+A tab you have not looked at since it settled **flashes**; visiting it makes the
+colour solid. Tabs with no agent in them keep the plain theme.
+
+State comes from the agent itself wherever the agent can say so, because that is
+the only source that is never a guess. Both reporters write one line to
+`$XDG_CACHE_HOME/tmux-agent-tab/status/<pane-id>`:
+
+```
+<running|waiting|done|error>	<unix seconds>
+```
+
+which is also the script's own writer interface, so anything that knows when it
+starts and stops can join in with one line of shell:
+
+```sh
+~/.tmux/agent-tab-status.sh set running        # uses $TMUX_PANE
+~/.tmux/agent-tab-status.sh set done --pane %7
+~/.tmux/agent-tab-status.sh clear
+```
+
+**Claude Code** reports through hooks. Merge this into `~/.claude/settings.json`
+(keep any hooks already there — each event takes a list):
+
+```json
+{
+  "hooks": {
+    "UserPromptSubmit": [{"hooks": [{"type": "command", "command": "\"$HOME/.tmux/agent-tab-status.sh\" set running 2>/dev/null || true"}]}],
+    "PreToolUse":  [{"hooks": [{"type": "command", "command": "\"$HOME/.tmux/agent-tab-status.sh\" set running 2>/dev/null || true"}]}],
+    "PostToolUse": [{"hooks": [{"type": "command", "command": "\"$HOME/.tmux/agent-tab-status.sh\" set running 2>/dev/null || true"}]}],
+    "Notification": [{"hooks": [{"type": "command", "command": "m=$(jq -r '.message // empty' 2>/dev/null); printf '%s' \"$m\" | grep -qiE 'permission|approve|confirm' && \"$HOME/.tmux/agent-tab-status.sh\" set waiting 2>/dev/null; true"}]}],
+    "Stop":       [{"hooks": [{"type": "command", "command": "\"$HOME/.tmux/agent-tab-status.sh\" set done 2>/dev/null || true"}]}],
+    "SessionEnd": [{"hooks": [{"type": "command", "command": "\"$HOME/.tmux/agent-tab-status.sh\" clear 2>/dev/null || true"}]}]
+  }
+}
+```
+
+`Notification` fires both for a permission request and for a sixty-second idle
+nudge, and the filter above lets only the first one through: treating the nudge
+as "waiting" would turn every finished tab orange a minute later and bury the
+done colour. `PostToolUse` is there to take the tab back to green after you
+approve something.
+
+**pi** reports from an extension (`extensions/tmux-status` in the pi harness
+repo) on `agent_start`, `ui_prompt_start`/`ui_prompt_end`, `agent_settled` and
+`session_shutdown` — the same four transitions.
+
+An agent that reports nothing falls back to matching cue patterns against the
+**bottom eight lines** of the pane, where a TUI keeps its spinner, input box and
+footer. That is a guess, and it is bounded on purpose:
+
+- It never paints red. Every phrase that means "this failed" is also a phrase
+  agents type all day; reading the whole screen for `Fatal|panic:` painted a tab
+  red because the session was *discussing* a panic. `@agent-status-cue-error` is
+  there if you have an agent with an unmistakable error line.
+- Reported state always wins over a cue.
+
+Red is therefore reserved for two facts: an agent that reported an error, and an
+agent that said "running" and then vanished — a crash or a kill, claimed only
+for a pane where the agent's process was positively identified first, so an
+agent whose process name is not in `@agent-status-pattern` goes stale rather
+than red.
+
+Tunable from `~/.tmux.local`:
+
+```tmux
+set -g @agent-status-enable 1
+set -g @agent-status-pattern '(^|/)(pi|claude|codex|agent|aider)( |$)'
+set -g @agent-status-running '#98c379'   # also the breathing colour
+set -g @agent-status-waiting '#d79921'
+set -g @agent-status-done    '#98c379'
+set -g @agent-status-error   '#e06c75'
+set -g @agent-status-dim 30              # percent brightness at the dim end
+set -g @agent-status-frame-ms 500        # animation frame
+set -g @agent-status-breathe-frames 6    # ping-pong ramp length
+set -g @agent-status-probe-frames 6      # how often to read an unreporting pane
+set -g @agent-status-cue-lines 8
+```
+
+`prefix S` clears every tab back to the theme. One `tmux` call per frame, only
+for windows whose colour actually changed, which measures as no CPU time at all
+over a minute. `./agent-tab-status-test.sh` runs the checks against a throwaway
+session.
 
 ### Git (Fugitive)
 
