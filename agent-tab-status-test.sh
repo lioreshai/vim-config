@@ -155,6 +155,58 @@ report "$P_CRASH" running
 OUT5="$("$SCRIPT" --tick --frames 8 --dry-run 2>&1)"
 hasnt "a process the pattern never matched is not called a crash" "#e06c75" "$(colors_for "$W_CRASH" "$OUT5")"
 
+# ------------------------------------------------------------------ background
+# Background work is in progress but the session is idle and will take input, so
+# it gets its own colour and a slower breath rather than looking like running.
+tmux new-window -t "$SESSION" -n w-bg 'sleep 600'
+sleep 0.3
+W_BG=$(win w-bg); P_BG=$(pane w-bg)
+report "$P_BG" background
+report "$P_RUN" running
+OUT7="$("$SCRIPT" --tick --frames 24 --dry-run 2>&1)"
+bg_seq=$(colors_for "$W_BG" "$OUT7")
+run2_seq=$(colors_for "$W_RUN" "$OUT7")
+
+is "background is a cyan, not a green" 1 "$(
+  bad=0
+  while read -r c; do
+    h=${c#\#}
+    r=$((0x${h:0:2})); g=$((0x${h:2:2})); b=$((0x${h:4:2}))
+    { [ "$b" -gt "$r" ] && [ "$g" -gt "$r" ]; } || bad=1
+  done <<< "$bg_seq"
+  [ "$bad" = 0 ] && echo 1 || echo 0)"
+
+is "background breathes, it does not blink" 1 "$(
+  [ "$(printf '%s\n' "$bg_seq" | sort -u | wc -l)" -ge 5 ] && echo 1 || echo 0)"
+
+swing() { # colour list -> brightest green channel minus dimmest
+  local hi=0 lo=255 c h g
+  while read -r c; do
+    h=${c#\#}; g=$((0x${h:2:2}))
+    [ "$g" -gt "$hi" ] && hi=$g
+    [ "$g" -lt "$lo" ] && lo=$g
+  done <<< "$1"
+  echo $(( hi - lo ))
+}
+is "background breathes more slowly than running" 1 "$(
+  [ "$(swing "$bg_seq")" -lt "$(swing "$run2_seq")" ] && echo 1 || echo 0)"
+
+# a window where one pane works and another only has background work is working
+tmux split-window -d -t "$SESSION:w-bg" 'sleep 600'
+sleep 0.3
+P_BG2=$(tmux list-panes -t "$SESSION:w-bg" -F '#{pane_id}' | tail -1)
+report "$P_BG2" running
+OUT8="$("$SCRIPT" --tick --frames 6 --dry-run 2>&1)"
+is "running outranks background in the same window" 1 "$(
+  bad=0
+  while read -r c; do
+    h=${c#\#}
+    r=$((0x${h:0:2})); g=$((0x${h:2:2})); b=$((0x${h:4:2}))
+    { [ "$g" -gt "$b" ] && [ "$g" -gt "$r" ]; } || bad=1
+  done <<< "$(colors_for "$W_BG" "$OUT8")"
+  [ "$bad" = 0 ] && echo 1 || echo 0)"
+rm -f "$STATUS/$P_BG" "$STATUS/$P_BG2" "$STATUS/$P_RUN"
+
 # ------------------------------------------------------------------ cues
 # The regression that made this a rule: a session discussing a panic is not a
 # panic. Fills the pane so the word is the bottom line - the place cues are read

@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
 # Colour tmux tabs by what the agent inside them is doing.
 #
-#   running   green, breathing      the agent is working
-#   waiting   orange                it is blocked on you (permission, question)
-#   done      green, solid          the turn finished
-#   error     red                   it failed, or died in the middle of a run
+#   running     green, breathing        the agent is working
+#   background  cyan, breathing slowly  the agent is idle, but a detached command
+#                                       or a backgrounded subagent is still going
+#   waiting     orange                  it is blocked on you (permission, question)
+#   done        green, solid            the turn finished
+#   error       red                     it failed, or died in the middle of a run
 #
 # A tab you have not looked at since it reached waiting/done/error flashes;
 # visiting it makes the colour solid. Tabs without an agent are left alone.
@@ -18,7 +20,7 @@
 #
 # Both write one line to $XDG_CACHE_HOME/tmux-agent-tab/status/<pane-id>:
 #
-#   <running|waiting|done|error>\t<unix seconds>
+#   <running|background|waiting|done|error>\t<unix seconds>
 #
 # which is also this script's own writer interface, so anything else that knows
 # when it starts and stops can join in with one line of shell:
@@ -32,7 +34,7 @@
 # agent whose UI changes changes the answer. Reported state always wins.
 #
 # usage: agent-tab-status.sh [--watch|--tick|--dump] [--frames N] [--dry-run]
-#        agent-tab-status.sh set <running|waiting|done|error> [--pane %N]
+#        agent-tab-status.sh set <running|background|waiting|done|error> [--pane %N]
 #        agent-tab-status.sh clear [--pane %N] | clear-all
 
 set -uo pipefail
@@ -52,7 +54,7 @@ write_state() { # state pane
   [ -n "$pane" ] || { echo "no pane: pass --pane or run inside tmux" >&2; return 2; }
   case "$state" in
     clear) rm -f "$STATUS_DIR/$pane"; return 0 ;;
-    running | waiting | done | error) ;;
+    running | background | waiting | done | error) ;;
     *) echo "unknown state: $state" >&2; return 2 ;;
   esac
   printf '%s\t%s\n' "$state" "$(now)" >"$STATUS_DIR/$pane"
@@ -79,7 +81,7 @@ for arg in "$@"; do
     set) MODE=set ;;
     clear) MODE=set; SET_STATE=clear ;;
     clear-all) MODE=clear-all ;;
-    running | waiting | done | error) SET_STATE="$arg" ;;
+    running | background | waiting | done | error) SET_STATE="$arg" ;;
     *) echo "unknown argument: $arg" >&2; exit 2 ;;
   esac
 done
@@ -120,12 +122,14 @@ C_RUNNING="$(opt @agent-status-running)"
 C_WAITING="$(opt @agent-status-waiting)"
 C_DONE="$(opt @agent-status-done)"
 C_ERROR="$(opt @agent-status-error)"
+C_BACKGROUND="$(opt @agent-status-background)"
 DIM_PCT="$(opt @agent-status-dim)"
 FRAME_MS="$(opt @agent-status-frame-ms)"
 IDLE_MS="$(opt @agent-status-idle-ms)"
 SAMPLE_MS="$(opt @agent-status-sample-ms)"
 BREATHE_MS="$(opt @agent-status-breathe-ms)"
 BLINK_MS="$(opt @agent-status-blink-ms)"
+BACKGROUND_MS="$(opt @agent-status-background-ms)"
 PROBE_MS="$(opt @agent-status-probe-ms)"
 ALERT_STYLE="$(opt @agent-status-alert-style)"
 CUE_RUNNING="$(opt @agent-status-cue-running)"
@@ -140,6 +144,9 @@ REDACT="${AGENT_TAB_REDACT:-$(opt @agent-tab-redact)}"
 [ -z "$C_WAITING" ] && C_WAITING='#d79921'
 [ -z "$C_DONE" ] && C_DONE='#98c379'
 [ -z "$C_ERROR" ] && C_ERROR='#e06c75'
+# Cyan, and breathing at half the tempo of running: the tab is still working but
+# the session is idle and will take input, which is a different thing to know.
+[ -z "$C_BACKGROUND" ] && C_BACKGROUND='#56b6c2'
 : "${DIM_PCT:=30}"
 # Animation is wall-clock, not frame-counted: the phase comes from the time of
 # day, so a late frame skips ahead instead of stretching the cycle, and the
@@ -149,6 +156,7 @@ REDACT="${AGENT_TAB_REDACT:-$(opt @agent-tab-redact)}"
 : "${SAMPLE_MS:=500}"       # how often state is re-derived, independent of paint
 : "${BREATHE_MS:=3600}"     # one full breath
 : "${BLINK_MS:=1000}"       # one on/off of an unwatched tab
+: "${BACKGROUND_MS:=7200}"  # one breath while only background work is left
 : "${PROBE_MS:=3000}"       # how often an unreporting pane's screen is read
 [ -z "$ALERT_STYLE" ] && ALERT_STYLE=blink
 # Only the bottom of the pane, because that is where a TUI keeps its spinner,
@@ -189,21 +197,25 @@ scale_hex() { # #rrggbb pct -> $HEX_OUT, scaled toward black. No $( ): this runs
 # anything and the motion stays even.
 # ...with a quarter of a frame in hand, so a frame that arrives late repeats a
 # step instead of skipping one. Repeating is invisible; skipping is the stutter.
-STEPS=$(( BREATHE_MS * 4 / (FRAME_MS * 5) ))
-[ "$STEPS" -lt 8 ] && STEPS=8
-[ "$STEPS" -gt 64 ] && STEPS=64
-declare -a PCTS=() RAMP=()
-build_ramp() {
-  local pct
+declare -a PCTS=() RAMP=() RAMP_BG=()
+build_ramp() { # colours_array pcts_array colour cycle_ms
+  local -n out="$1" pcts="$2"
+  local colour="$3" steps pct
+  steps=$(( $4 * 4 / (FRAME_MS * 5) ))
+  [ "$steps" -lt 8 ] && steps=8
+  [ "$steps" -gt 64 ] && steps=64
+  out=(); pcts=()
   while read -r pct; do
-    PCTS+=("$pct")
-    scale_hex "$C_RUNNING" "$pct"
-    RAMP+=("$HEX_OUT")
-  done < <(awk -v n="$STEPS" -v dim="$DIM_PCT" 'BEGIN {
+    pcts+=("$pct")
+    scale_hex "$colour" "$pct"
+    out+=("$HEX_OUT")
+  done < <(awk -v n="$steps" -v dim="$DIM_PCT" 'BEGIN {
     for (i = 0; i < n; i++) printf "%d\n", dim + (100 - dim) * (1 - cos(2 * 3.14159265 * i / n)) / 2
   }')
 }
-build_ramp
+declare -a BG_PCTS=()
+build_ramp RAMP PCTS "$C_RUNNING" "$BREATHE_MS"
+build_ramp RAMP_BG BG_PCTS "$C_BACKGROUND" "$BACKGROUND_MS"
 nap_for() { # target_ms started_ms -> sleeps whatever is left of the frame
   local rest=$(( $1 - (NOW_MS - $2) ))
   [ "$rest" -lt 5 ] && rest=5
@@ -227,14 +239,17 @@ fi
 
 # Urgency, for a window whose panes disagree. A table, not a function: this is
 # read twice per pane per sample and $( ) would fork for every read.
-declare -A RANK=([error]=4 [waiting]=3 [running]=2 [done]=1)
+declare -A RANK=([error]=5 [waiting]=4 [running]=3 [background]=2 [done]=1)
 
 COLOR=""
 phase_color() { # state unseen -> $COLOR ("" leaves the theme alone)
   local base="" dim="" idx
   case "$1" in
     running)
-      COLOR="${RAMP[$(( (NOW_MS % BREATHE_MS) * STEPS / BREATHE_MS ))]}"
+      COLOR="${RAMP[$(( (NOW_MS % BREATHE_MS) * ${#RAMP[@]} / BREATHE_MS ))]}"
+      return ;;
+    background)
+      COLOR="${RAMP_BG[$(( (NOW_MS % BACKGROUND_MS) * ${#RAMP_BG[@]} / BACKGROUND_MS ))]}"
       return ;;
     waiting) base="$C_WAITING"; dim="$DIM_WAITING" ;;
     done)    base="$C_DONE";    dim="$DIM_DONE" ;;
@@ -247,7 +262,7 @@ phase_color() { # state unseen -> $COLOR ("" leaves the theme alone)
   # a glance, while a hard on/off is unmistakably an alert. @agent-status-alert-
   # style pulse trades that apart-ness for a smoother look.
   if [ "$ALERT_STYLE" = pulse ]; then
-    idx=$(( (NOW_MS % BLINK_MS) * STEPS / BLINK_MS ))
+    idx=$(( (NOW_MS % BLINK_MS) * ${#PCTS[@]} / BLINK_MS ))
     scale_hex "$base" "${PCTS[$idx]}"
     COLOR="$HEX_OUT"
   elif [ $(( NOW_MS % BLINK_MS )) -lt $(( BLINK_MS / 2 )) ]; then
@@ -299,7 +314,7 @@ sample() { # -> WIN_STATE, WIN_SEEN, UNSEEN, ANIMATING
     if [[ "$cmd" =~ $PATTERN ]]; then present=1; SAW_AGENT[$pane]=1; fi
 
     if [ -n "$reported" ]; then
-      if [ "$present" = 1 ] || [ "$reported" != running ] || [ "${SAW_AGENT[$pane]:-0}" != 1 ]; then
+      if [ "$present" = 1 ] || [ "${RANK[$reported]:-0}" -lt 2 ] || [ "${SAW_AGENT[$pane]:-0}" != 1 ]; then
         pstate="$reported"
       else
         # It said "running" and the process we watched it in is gone, so it never
@@ -333,11 +348,11 @@ sample() { # -> WIN_STATE, WIN_SEEN, UNSEEN, ANIMATING
     wstate="${WIN_STATE[$win]}"
     if [ "${WIN_SEEN[$win]:-0}" = 1 ]; then
       UNSEEN[$win]=0                     # you are looking at it right now
-    elif [ "$wstate" != running ] && [ "$wstate" != "${LAST[$win]:-}" ]; then
+    elif [ "$wstate" != running ] && [ "$wstate" != background ] && [ "$wstate" != "${LAST[$win]:-}" ]; then
       UNSEEN[$win]=1                     # it just settled, and not in front of you
     fi
     LAST[$win]="$wstate"
-    if [ "$wstate" = running ] || [ "${UNSEEN[$win]:-0}" = 1 ]; then ANIMATING=1; fi
+    if [ "$wstate" = running ] || [ "$wstate" = background ] || [ "${UNSEEN[$win]:-0}" = 1 ]; then ANIMATING=1; fi
   done
 
   if [ $(( NOW_MS - LAST_PRUNE )) -ge 60000 ]; then

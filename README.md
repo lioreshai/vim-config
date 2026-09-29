@@ -122,9 +122,14 @@ Tabs running an agent are coloured by what that agent is doing:
 | Colour | Meaning |
 |--------|---------|
 | green, breathing | working |
+| cyan, breathing slowly | idle, but a detached command or backgrounded subagent is still running |
 | orange | blocked on you — a permission prompt is open |
 | green, solid | the turn finished |
 | red | it reported a failure, or died in the middle of a run |
+
+Green and cyan are different instructions to a person: a green tab is busy, a
+cyan tab will take input while work continues behind it. The slower breath is
+the second channel, so the two stay apart without relying on hue alone.
 
 A tab you have not looked at since it settled **flashes**; visiting it makes the
 colour solid. Tabs with no agent in them keep the plain theme.
@@ -134,7 +139,7 @@ the only source that is never a guess. Both reporters write one line to
 `$XDG_CACHE_HOME/tmux-agent-tab/status/<pane-id>`:
 
 ```
-<running|waiting|done|error>	<unix seconds>
+<running|background|waiting|done|error>	<unix seconds>
 ```
 
 which is also the script's own writer interface, so anything that knows when it
@@ -172,9 +177,13 @@ approve something.
 repo) on `agent_start`, `ui_prompt_start`/`ui_prompt_end`, `agent_settled` and
 `session_shutdown` — the same transitions. It also reports at `session_start`,
 so `/reload` colours the tab straight away instead of leaving it grey until the
-session's next turn, and it stays green past the end of a turn while a detached
-command or a backgrounded subagent is still running — settling means pi will not
-continue on its own, not that nothing is happening.
+session's next turn, and it reports `background` past the end of a turn while a
+detached command or a backgrounded subagent is still running — settling means pi
+will not continue on its own, not that nothing is happening.
+
+Claude Code has background tasks too, but no hook fires when one ends, so its
+tabs never go cyan. Anything that knows can report the state itself with
+`agent-tab-status.sh set background`.
 
 An agent that reports nothing falls back to matching cue patterns against the
 **bottom eight lines** of the pane, where a TUI keeps its spinner, input box and
@@ -201,11 +210,13 @@ set -g @agent-status-running '#98c379'   # also the breathing colour
 set -g @agent-status-waiting '#d79921'
 set -g @agent-status-done    '#98c379'
 set -g @agent-status-error   '#e06c75'
+set -g @agent-status-background '#56b6c2'
 set -g @agent-status-dim 30               # percent brightness at the dim end
 set -g @agent-status-frame-ms 100         # paint interval while something animates
 set -g @agent-status-idle-ms 500          # paint interval when every colour is solid
 set -g @agent-status-sample-ms 500        # how often state is re-derived
 set -g @agent-status-breathe-ms 3600      # one full breath
+set -g @agent-status-background-ms 7200   # one breath of the background colour
 set -g @agent-status-blink-ms 1000        # one on/off of an unwatched tab
 set -g @agent-status-alert-style blink    # or 'pulse' to fade instead of blink
 set -g @agent-status-probe-ms 3000        # how often to read an unreporting pane
@@ -228,7 +239,7 @@ apart-ness for a smoother look.
 for windows whose colour actually changed, and state sampling runs on its own
 slower clock so a smooth fade does not mean re-reading every pane ten times a
 second: 1.7% of one core while a tab is animating, and one call every half
-second when the bar is all solid. `./agent-tab-status-test.sh` runs 19 checks
+second when the bar is all solid. `./agent-tab-status-test.sh` runs 23 checks
 against a throwaway session, including that a breath moves through at least ten
 shades with no visible jump between frames.
 
